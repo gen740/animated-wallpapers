@@ -1,0 +1,20 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build app bundles
+        run: ./scripts/build-app.sh
+      - name: Validate app metadata
+        run: |
+          plutil -lint "dist/Penrose Nocturne.app/Contents/Info.plist"
+          plutil -lint "dist/Life Matte Gold.app/Contents/Info.plist"

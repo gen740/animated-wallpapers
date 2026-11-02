@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quasicrystal — Nocturne</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; background: #080f17; overflow: hidden; }
+  body { display: grid; place-items: center; font-family: system-ui, -apple-system, sans-serif; }
+  canvas { display: block; width: min(100vw, 177.77778vh); height: min(56.25vw, 100vh); }
+  .controls { position: fixed; bottom: 24px; right: 28px; display: flex; align-items: center; gap: 14px; color: #abb6b7; font-size: 11px; letter-spacing: .13em; }
+  button { border: 1px solid #70838a80; border-radius: 4px; background: #101d28d9; color: #e3d3af; padding: 11px 15px; font: inherit; letter-spacing: inherit; cursor: pointer; backdrop-filter: blur(12px); }
+  button:hover { background: #283642; border-color: #b99a66; }
+  @media (max-width: 650px) { .controls { bottom: 12px; right: 12px; } .controls span { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="wallpaper" width="7680" height="4320" aria-label="ペンローズの菱形タイルによる非周期的な壁紙"></canvas>
+<div class="controls"><span>NOCTURNE / PENROSE · 7680 × 4320</span><button id="save">8K PNG を保存</button></div>
+<script>
+(() => {
+  'use strict';
+  const canvas = document.getElementById('wallpaper');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const W = canvas.width, H = canvas.height;
+  const TAU = Math.PI * 2;
+  const unit = Array.from({length: 5}, (_, i) => ({
+    x: Math.cos(TAU * i / 5), y: Math.sin(TAU * i / 5)
+  }));
+  // De Bruijn's regular pentagrid: sum(gamma) = 0, with generic offsets
+  // avoiding triple intersections. Its dual is a genuine P3 Penrose tiling.
+  const gamma = [0.071, 0.137, 0.193, -0.043, -0.358];
+  const size = 132;
+  const origin = { x: W * 0.516, y: H * 0.503 };
+  const halfDiagonal = Math.hypot(W, H) / 2;
+  const gridLimit = Math.ceil(halfDiagonal / (2.5 * size)) + 9;
+  const visibleMargin = size * 2;
+  const goldFraction = 0.02;
+  function tileRandom(i, j, k, l) {
+    let h = 2166136261;
+    for (const value of [i, j, k, l]) h = Math.imul(h ^ value, 16777619);
+    h ^= h >>> 16;
+    h = Math.imul(h, 0x7feb352d);
+    h ^= h >>> 15;
+    h = Math.imul(h, 0x846ca68b);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  }
+
+  function polygon(p) {
+    ctx.beginPath(); ctx.moveTo(p[0].x, p[0].y);
+    for (let n = 1; n < 4; n++) ctx.lineTo(p[n].x, p[n].y);
+    ctx.closePath();
+  }
+  function drawBackground() {
+    ctx.fillStyle = '#08121c'; ctx.fillRect(0, 0, W, H);
+    const bloom = ctx.createRadialGradient(W*.51, H*.49, 70, W*.51, H*.49, W*.69);
+    bloom.addColorStop(0, '#223942');
+    bloom.addColorStop(.38, '#142935');
+    bloom.addColorStop(.76, '#0b1a27');
+    bloom.addColorStop(1, '#08121c');
+    ctx.fillStyle = bloom; ctx.fillRect(0, 0, W, H);
+  }
+  function drawTile(i, j, k, l, rx, ry) {
+    let bx = 0, by = 0;
+    for (let a = 0; a < 5; a++) {
+      const m = a === i ? k : a === j ? l :
+        Math.ceil(unit[a].x * rx + unit[a].y * ry + gamma[a] - 1e-9);
+      bx += m * unit[a].x; by += m * unit[a].y;
+    }
+    const x = origin.x + bx * size, y = origin.y + by * size;
+    if (x < -visibleMargin || x > W + visibleMargin ||
+        y < -visibleMargin || y > H + visibleMargin) return;
+    const u = unit[i], v = unit[j];
+    const p = [
+      {x, y},
+      {x: x + u.x*size, y: y + u.y*size},
+      {x: x + (u.x+v.x)*size, y: y + (u.y+v.y)*size},
+      {x: x + v.x*size, y: y + v.y*size}
+    ];
+    const cx = x + (u.x+v.x)*size*.5;
+    const cy = y + (u.y+v.y)*size*.5;
+    const proximity = Math.max(0, 1 - Math.hypot((cx-W*.5)/(W*.69), (cy-H*.5)/(H*.88)));
+    const thin = j-i === 2 || j-i === 3;
+    const gold = tileRandom(i, j, k, l) < goldFraction;
+    const tone = tileRandom(i + 17, j + 31, k, l);
+    const hue = tileRandom(i + 53, j + 71, k, l);
+    polygon(p);
+    const light = 12 + proximity*7 + tone*8;
+    if (gold) {
+      const metal = ctx.createLinearGradient(cx-size, cy-size, cx+size, cy+size);
+      const goldHue = 37 + hue*5;
+      const goldLight = 31 + tone*9;
+      metal.addColorStop(0, `hsl(${goldHue} 32% ${goldLight}%)`);
+      metal.addColorStop(.46, `hsl(${goldHue} 38% ${goldLight+19}%)`);
+      metal.addColorStop(1, `hsl(${goldHue} 34% ${goldLight+6}%)`);
+      ctx.fillStyle = metal;
+    } else {
+      ctx.fillStyle = `hsl(${189 + hue*20} ${19 + tone*10}% ${light + (thin ? 2 : 0)}%)`;
+    }
+    ctx.fill();
+    ctx.strokeStyle = gold ? 'rgba(223,191,130,.65)' : 'rgba(166,195,195,.36)';
+    ctx.lineWidth = 2.1;
+    ctx.stroke();
+  }
+  function draw() {
+    drawBackground();
+    // De Bruijn pentagrid: each intersection of two of five incommensurate
+    // line families corresponds to one rhomb in the dual tiling.
+    for (let i = 0; i < 5; i++) for (let j = i+1; j < 5; j++) {
+      const a = unit[i], b = unit[j], det = a.x*b.y - a.y*b.x;
+      for (let k = -gridLimit; k <= gridLimit; k++)
+        for (let l = -gridLimit; l <= gridLimit; l++) {
+          const ak = k - gamma[i], bl = l - gamma[j];
+          const rx = (ak*b.y - a.y*bl) / det;
+          const ry = (a.x*bl - ak*b.x) / det;
+          drawTile(i, j, k, l, rx, ry);
+        }
+    }
+    // Low-contrast optical vignette; the tessellation remains visible at edges.
+    const shade = ctx.createRadialGradient(W*.5,H*.49,W*.22,W*.5,H*.49,W*.78);
+    shade.addColorStop(0, 'rgba(3,9,16,0)');
+    shade.addColorStop(1, 'rgba(2,6,13,.54)');
+    ctx.fillStyle = shade; ctx.fillRect(0,0,W,H);
+  }
+  draw();
+  document.getElementById('save').addEventListener('click', () => {
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = 'penrose-nocturne-8k.png'; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }, 'image/png');
+  });
+})();
+</script>
+</body>
+</html>
